@@ -62,6 +62,22 @@ apt install -y ufw fail2ban git curl
 timedatectl set-timezone Asia/Bangkok
 ```
 
+**อธิบายคำสั่ง `apt install -y ufw fail2ban git curl`:**
+
+| ส่วน | ความหมาย |
+|---|---|
+| `apt` | ตัวจัดการแพ็กเกจ (package manager) ของ Ubuntu/Debian ใช้ติดตั้ง/อัปเดต/ลบโปรแกรม |
+| `install` | คำสั่งย่อยที่บอกว่าต้องการ "ติดตั้ง" |
+| `-y` | ตอบ **yes** อัตโนมัติทุกคำถาม ไม่ต้องมานั่งกดยืนยันเอง (เหมาะกับสคริปต์อัตโนมัติ) |
+| `ufw fail2ban git curl` | รายชื่อโปรแกรมที่ติดตั้งพร้อมกัน |
+
+โปรแกรมแต่ละตัว:
+
+- **`ufw`** (Uncomplicated Firewall) — ไฟร์วอลล์ใช้ง่าย เปิด/ปิดพอร์ต ควบคุมว่าใครเข้าถึงเซิร์ฟเวอร์ได้ (เช่น เปิดเฉพาะพอร์ต 22/80/443)
+- **`fail2ban`** — เฝ้าดู log แล้ว **แบน IP** ที่พยายาม login ผิดหลายครั้งโดยอัตโนมัติ ป้องกันการเดารหัสผ่าน (brute-force)
+- **`git`** — เครื่องมือจัดการเวอร์ชันโค้ด ใช้ `git clone` ดึงโปรเจกต์จาก GitHub มาลงเซิร์ฟเวอร์
+- **`curl`** — เครื่องมือดาวน์โหลด/ยิง request ผ่าน HTTP ใช้ทดสอบ API หรือดึงไฟล์/สคริปต์ติดตั้งจากอินเทอร์เน็ต
+
 ---
 
 ## STEP 2 — Hardening SSH (root + key เท่านั้น)
@@ -98,8 +114,32 @@ systemctl restart ssh
 
 ## STEP 3 — ตั้งค่า Firewall (UFW)
 
-> เพราะใช้ **Cloudflare Tunnel** (เชื่อม outbound) จึง **ไม่ต้องเปิดพอร์ต 80/443** สู่ Internet
-> เปิดแค่ SSH พอ
+> เพราะใช้ **Cloudflare Tunnel** (เชื่อม outbound) traffic จากภายนอกวิ่งเข้าผ่าน tunnel
+> ไม่ได้วิ่งเข้าพอร์ตของ VPS ตรง ๆ จึง **ไม่ต้องเปิดพอร์ต 80/443 หรือพอร์ตของ service ใด ๆ**
+> สู่ Internet — **เปิดแค่ SSH พอ**
+
+### พอร์ตที่ต้องเปิด (และไม่ต้องเปิด)
+
+| พอร์ต | Service | เปิดสู่ Internet? | เหตุผล |
+|---|---|---|---|
+| **22** (SSH) | SSH | ✅ **เปิด** (จำเป็น) | ต้องใช้ remote เข้า VPS — หรือพอร์ต SSH ที่กำหนดเอง |
+| 80 / 443 | Nginx Proxy Manager | ❌ ไม่ต้อง | Cloudflare Tunnel เชื่อม outbound ให้แล้ว |
+| 81 | NPM Admin UI | ❌ **ห้ามเปิด** | หน้า admin — เข้าผ่าน SSH tunnel เท่านั้น |
+| 1880 | Node-RED | ❌ **ห้ามเปิด** | เข้าผ่าน SSH tunnel / Cloudflare |
+| 3000 | Grafana | ❌ ห้ามเปิด | เข้าผ่าน SSH tunnel / Cloudflare |
+| 5678 | n8n | ❌ ไม่ต้อง | เปิด public ผ่าน Cloudflare Tunnel อยู่แล้ว |
+| 8086 | InfluxDB | ❌ **ห้ามเปิด** | ฐานข้อมูล — ไม่ควรโผล่สู่ Internet |
+| 8123 | Home Assistant | ❌ ห้ามเปิด | เข้าผ่าน SSH tunnel / Cloudflare |
+| 1883 | MQTT (Mosquitto) | ⚠️ เฉพาะกรณี | เปิด**ก็ต่อเมื่อ** ESP32 ต่อตรง **และเปิด auth แล้ว** |
+| 9001 | MQTT over WebSocket | ⚠️ เฉพาะกรณี | เช่นเดียวกับ 1883 |
+
+> 💡 พอร์ต service ทั้งหมด (81, 1880, 3000, 8086, 8123 ฯลฯ) เข้าถึงได้ผ่าน **SSH tunnel**
+> จากเครื่องตัวเองแบบไม่ต้องเปิดพอร์ตสู่ Internet เช่น:
+> ```bash
+> ssh -L 1880:localhost:1880 root@<VPS_IP>   # แล้วเปิด http://localhost:1880 บนเครื่องตัวเอง
+> ```
+
+### คำสั่งตั้งค่า
 
 ```bash
 ufw default deny incoming
@@ -112,6 +152,17 @@ ufw status verbose
 > 📶 **หมายเหตุ MQTT:** ถ้าอุปกรณ์ ESP32 อยู่นอกวง VPS และต้องต่อ MQTT ตรง (port 1883)
 > ควร (ก) เปิด auth ใน Mosquitto ก่อน แล้วค่อย `ufw allow 1883/tcp` หรือ
 > (ข) ให้อุปกรณ์เชื่อมผ่าน VPN/Cloudflare แทน — **อย่าเปิด 1883 แบบ anonymous สู่ Internet**
+
+> 🚨 **สำคัญมาก — Docker ข้าม UFW ได้!**
+> Docker เขียนกฎ iptables ของตัวเองโดยตรง ทำให้พอร์ตที่ map แบบ `"1880:1880"` ใน
+> `docker-compose.yml` **โผล่สู่ Internet ได้แม้ UFW จะสั่ง deny** เพื่อความปลอดภัย
+> ให้ผูกพอร์ตของ service ที่ไม่ต้องการเปิด public ไว้กับ `127.0.0.1` เท่านั้น เช่น:
+> ```yaml
+> ports:
+>   - "127.0.0.1:1880:1880"   # เข้าถึงได้เฉพาะจาก VPS (ผ่าน SSH tunnel)
+> ```
+> ทำแบบนี้กับ 81, 1880, 3000, 8086, 8123, 5678 — ส่วน 80/443 ปล่อยไว้ให้ NPM +
+> Cloudflare Tunnel จัดการ
 
 ---
 
