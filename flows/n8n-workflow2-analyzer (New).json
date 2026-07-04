@@ -1,0 +1,427 @@
+{
+  "name": "n8n-workflow2-analyzer (New)",
+  "nodes": [
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1Oa979YHjGgximaLgiNp--XX4jLZRMgqmuWZJrPpZPaQ",
+          "mode": "list",
+          "cachedResultName": "EnergyLog",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Oa979YHjGgximaLgiNp--XX4jLZRMgqmuWZJrPpZPaQ/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 955116588,
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Oa979YHjGgximaLgiNp--XX4jLZRMgqmuWZJrPpZPaQ/edit#gid=955116588"
+        },
+        "options": {}
+      },
+      "id": "66a0d1e8-4a16-4ab8-bdb9-2e30b2cd7c86",
+      "name": "Read Energy Log Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        -720,
+        112
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "aBPpcfiPig6Ar2dx",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check_skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "92c59c56-9a28-43e9-889d-9835533f1b78",
+      "name": "Has Data?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $input.first().json;\n\nconst systemPrompt = `คุณเป็น AI วิศวกรพลังงานอุตสาหกรรม เชี่ยวชาญการวิเคราะห์ข้อมูล telemetry เครื่องจักรและให้คำแนะนำประหยัดพลังงาน\nตอบกลับเป็น JSON เท่านั้น ห้ามมี markdown หรือ code block`;\n\nconst userPrompt = `วิเคราะห์ข้อมูลพลังงานสรุป 5 นาทีของเครื่องจักร ${s.machine_id} แล้วตัดสินใจ\n\nสถิติช่วง ${s.time_from} ถึง ${s.time_to} (${s.count} readings)\n\n【กำลังไฟฟ้า】\n• Active Power  : เฉลี่ย ${s.power_avg_kw} kW | สูงสุด ${s.power_max_kw} kW | ต่ำสุด ${s.power_min_kw} kW\n• Reactive Power: เฉลี่ย ${s.reactive_avg_kvar} kVAr\n• Apparent Power: เฉลี่ย ${s.apparent_avg_kva} kVA\n• Power Factor  : เฉลี่ย ${s.pf_avg} | ต่ำสุด ${s.pf_min}\n• พลังงานใช้ไป : ${s.energy_delta_kwh} kWh\n\n【โหลดและกระแส】\n• Load     : เฉลี่ย ${s.load_avg_pct}% | สูงสุด ${s.load_max_pct}%\n• Current  : เฉลี่ย ${s.current_avg_a} A | สูงสุด ${s.current_max_a} A\n• Motor RPM: เฉลี่ย ${s.rpm_avg} rpm\n• Frequency: ${s.freq_avg_hz} Hz\n\n【เหตุการณ์ผิดปกติ】\n• Overcurrent Alarm: ${s.alarm_count} ครั้ง (${s.alarm_rate_pct}% ของเวลา)\n• Spike Event      : ${s.spike_count} ครั้ง (${s.spike_rate_pct}% ของเวลา)\n\nเกณฑ์ตัดสินใจ reduce_power = true:\n- power_avg > 7.5 kW หรือ power_max > 9.0 kW\n- load_avg > 75% หรือ load_max > 85%\n- pf_min < 0.88\n- alarm_count > 0 หรือ spike_count > 0\n- current_max > 18 A\n\nตอบ JSON เท่านั้น:\n{\"reduce_power\": boolean, \"reason\": \"สาเหตุ 1 ประโยค\", \"recommendation\": \"คำแนะนำปฏิบัติ\", \"risk_level\": \"low|medium|high\", \"summary\": \"สรุปสถานการณ์\"}`;\n\nreturn [{ json: { system_prompt: systemPrompt, user_prompt: userPrompt, stats: s } }];"
+      },
+      "id": "0c56b061-3a55-4674-9e52-694b00d0949b",
+      "name": "Build AI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp  = $input.first().json;\nconst stats = $('Build AI Prompt').first().json.stats;\n\nlet decision = {\n  reduce_power:   false,\n  reason:         'ไม่สามารถวิเคราะห์ได้',\n  recommendation: 'ตรวจสอบด้วยตนเอง',\n  risk_level:     'low',\n  summary:        '-'\n};\n\ntry {\n  // รองรับทุก format ที่เป็นไปได้\n  const rawText =\n    resp.choices?.[0]?.message?.content ||  // OpenAI HTTP format\n    resp.output ||                           // n8n LangChain / AI Agent\n    resp.text   ||                           // n8n LLM Chain\n    resp.message?.content ||                 // direct message\n    '';\n\n  const match = rawText.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    const parsed = JSON.parse(match[0]);\n    decision = {\n      reduce_power:   parsed.reduce_power === true,\n      reason:         parsed.reason         || '-',\n      recommendation: parsed.recommendation || '-',\n      risk_level:     (parsed.risk_level    || 'low').toLowerCase(),\n      summary:        parsed.summary        || '-'\n    };\n  }\n} catch (e) {\n  decision.reason = 'Parse error: ' + e.message;\n}\n\nconst used_model = resp.model || 'openrouter';\nconst usage      = resp.usage || {};\n\nreturn [{\n  json: {\n    ...decision,\n    machine_id:       stats.machine_id,\n    analyzed_at:      new Date(Date.now() + 7*60*60*1000).toISOString().replace('Z','+07:00'),\n    readings_count:   stats.count,\n    power_avg_kw:     stats.power_avg_kw,\n    power_max_kw:     stats.power_max_kw,\n    load_avg_pct:     stats.load_avg_pct,\n    load_max_pct:     stats.load_max_pct,\n    pf_min:           stats.pf_min,\n    alarm_count:      stats.alarm_count,\n    spike_count:      stats.spike_count,\n    energy_delta_kwh: stats.energy_delta_kwh,\n    ai_model:         used_model,\n    tokens_used:      usage.total_tokens || 0,\n    source:           'n8n-openrouter-5min'\n  }\n}];\n"
+      },
+      "id": "197ff5c7-839f-46e8-b872-1746e59273bd",
+      "name": "Parse AI Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://nodered:1880/energy-command",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "363f50c8-fb8a-4342-84c4-860ddfd5dbd3",
+      "name": "Send Command to Node-RED",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1cKT9jznanj2aHwdE1lcrsV0lIx1c_LkU57E9YcHpZPA",
+          "mode": "list",
+          "cachedResultName": "LogResult",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1cKT9jznanj2aHwdE1lcrsV0lIx1c_LkU57E9YcHpZPA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "ชีต1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1cKT9jznanj2aHwdE1lcrsV0lIx1c_LkU57E9YcHpZPA/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reduce_power": "={{ $json.reduce_power }}",
+            "status": "={{ $json.status }}",
+            "ts": "={{ $json.ts }}",
+            "season": "={{ $('Parse AI Decision').item.json.reason }}",
+            "recommendation": "={{ $('Parse AI Decision').item.json.recommendation }}",
+            "summary": "={{ $('Parse AI Decision').item.json.summary }}",
+            "risk_level": "={{ $('Parse AI Decision').item.json.risk_level }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reduce_power",
+              "displayName": "reduce_power",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ts",
+              "displayName": "ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "season",
+              "displayName": "season",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "recommendation",
+              "displayName": "recommendation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "risk_level",
+              "displayName": "risk_level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6ba240d4-02f6-4237-95ac-cf3393abbff6",
+      "name": "Log Result to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        960,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "aBPpcfiPig6Ar2dx",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.user_prompt }}",
+        "options": {
+          "systemMessage": "=  {{ $json.system_prompt }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        176,
+        0
+      ],
+      "id": "49e87cf7-9d27-43cb-9bed-84f6f02e786f",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        80,
+        208
+      ],
+      "id": "430f40a2-a735-49f8-a86a-f0607ce5d344",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "7XSH9GUq2N0rFUqY",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "=*/1 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "897e71fd-4474-418b-bb7a-870ffa3fa12e",
+      "name": "Every 1 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -960,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all();\nconst now = new Date();\nconst oneMinAgo = new Date(now.getTime() - 1 * 60 * 1000);\n\n// กรองเฉพาะ 1 นาทีล่าสุดก่อน\nlet recent = rows.filter(r => {\n  const ts = new Date(r.json.timestamp);\n  return !isNaN(ts.getTime()) && ts >= oneMinAgo;\n});\n\n// fallback: ถ้าไม่มีข้อมูลใน 1 นาที ใช้ 12 rows ล่าสุด (~1 นาที ที่ 5s/row)\nconst usedFallback = recent.length === 0;\nif (usedFallback) {\n  recent = rows.slice(-12);\n}\n\nif (recent.length === 0) {\n  return [{ json: { skip: true, reason: 'ไม่มีข้อมูลในระบบเลย', count: 0 } }];\n}\n\nconst num  = v => parseFloat(v) || 0;\nconst avg  = arr => arr.reduce((a,b) => a+b, 0) / arr.length;\nconst max  = arr => Math.max(...arr);\nconst min  = arr => Math.min(...arr);\n\nconst powers   = recent.map(r => num(r.json.active_power_kw));\nconst reactive = recent.map(r => num(r.json.reactive_power_kvar));\nconst apparent = recent.map(r => num(r.json.apparent_power_kva));\nconst pfs      = recent.map(r => num(r.json.power_factor));\nconst loads    = recent.map(r => num(r.json.load_pct));\nconst currents = recent.map(r => num(r.json.current_max));\nconst rpms     = recent.map(r => num(r.json.motor_rpm));\nconst freqs    = recent.map(r => num(r.json.frequency_hz));\n\nconst alarmCount = recent.filter(r =>\n  r.json.alarm_overcurrent === true ||\n  r.json.alarm_overcurrent === 'true' ||\n  r.json.alarm_overcurrent === 'TRUE'\n).length;\nconst spikeCount = recent.filter(r =>\n  r.json.spike_event === true ||\n  r.json.spike_event === 'true' ||\n  r.json.spike_event === 'TRUE'\n).length;\n\nconst energyFirst = num(recent[0].json.energy_today_kwh);\nconst energyLast  = num(recent[recent.length-1].json.energy_today_kwh);\nconst energyDelta = Number(Math.max(0, energyLast - energyFirst).toFixed(4));\n\nreturn [{\n  json: {\n    skip:              false,\n    used_fallback:     usedFallback,\n    machine_id:        recent[0].json.machine_id || 'MC-01',\n    count:             recent.length,\n    time_from:         recent[0].json.timestamp,\n    time_to:           recent[recent.length-1].json.timestamp,\n\n    power_avg_kw:      Number(avg(powers).toFixed(3)),\n    power_max_kw:      Number(max(powers).toFixed(3)),\n    power_min_kw:      Number(min(powers).toFixed(3)),\n\n    reactive_avg_kvar: Number(avg(reactive).toFixed(3)),\n    apparent_avg_kva:  Number(avg(apparent).toFixed(3)),\n\n    pf_avg:            Number(avg(pfs).toFixed(3)),\n    pf_min:            Number(min(pfs).toFixed(3)),\n\n    load_avg_pct:      Number(avg(loads).toFixed(1)),\n    load_max_pct:      Number(max(loads).toFixed(1)),\n\n    current_avg_a:     Number(avg(currents).toFixed(2)),\n    current_max_a:     Number(max(currents).toFixed(2)),\n\n    rpm_avg:           Math.round(avg(rpms)),\n    freq_avg_hz:       Number(avg(freqs).toFixed(2)),\n\n    energy_delta_kwh:  energyDelta,\n    alarm_count:       alarmCount,\n    spike_count:       spikeCount,\n    alarm_rate_pct:    Number((alarmCount / recent.length * 100).toFixed(1)),\n    spike_rate_pct:    Number((spikeCount  / recent.length * 100).toFixed(1))\n  }\n}];\n"
+      },
+      "id": "0a14c85a-84da-4024-98ff-273a51fdbf50",
+      "name": "Filter 1min + Calc Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        112
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Read Energy Log Sheet": {
+      "main": [
+        [
+          {
+            "node": "Filter 1min + Calc Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Data?": {
+      "main": [
+        [
+          {
+            "node": "Build AI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Decision": {
+      "main": [
+        [
+          {
+            "node": "Send Command to Node-RED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Command to Node-RED": {
+      "main": [
+        [
+          {
+            "node": "Log Result to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 1 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Read Energy Log Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter 1min + Calc Stats": {
+      "main": [
+        [
+          {
+            "node": "Has Data?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "5cb4b9c1-718a-4b98-b1f0-e4c787ece8ea",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6d75f38bd5f41abf1511b6ccd10a29b42acea88a6cf5e5c0491bc29690c5771b"
+  },
+  "id": "QyHZo76SA8njPP29",
+  "tags": []
+}

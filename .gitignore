@@ -1,0 +1,30 @@
+# ════════════════════════════════════════════════════════
+#  .gitignore
+# ════════════════════════════════════════════════════════
+
+# Environment variables (contains secrets — never commit)
+.env
+.env.*
+!.env.example
+!.env.enc
+
+# Secret keys (SOPS/age decryption key — never commit)
+key.txt
+*.agekey
+
+# Node-RED data
+node-red/data/
+
+# n8n data
+n8n/data/
+
+# Docker volumes / local data
+volumes/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

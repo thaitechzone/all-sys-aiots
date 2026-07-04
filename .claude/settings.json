@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker restart *)",
+      "Bash(curl -s -H 'Authorization: Token ZEFqwNspJYEQ8HAucne-PUUHohOsl18e8nRfu_3q0_o3Z_qoluzc3Od_f8w32MSCir0CBDhm5AyGpF8soK3clQ==' 'http://localhost:8086/api/v2/buckets?orgID=faa02208d7e4c169')",
+      "Bash(curl -s -X POST 'http://localhost:8086/api/v2/write?org=iot&bucket=sensors&precision=ms' -H 'Authorization: Token ZEFqwNspJYEQ8HAucne-PUUHohOsl18e8nRfu_3q0_o3Z_qoluzc3Od_f8w32MSCir0CBDhm5AyGpF8soK3clQ==' -H 'Content-Type: text/plain' --data-binary 'sensor_data,device=TEST temperature=25.0,humidity=60.0' -w '\\\\nHTTP Status: %{http_code}')",
+      "Bash(curl -s -X POST 'http://localhost:8086/api/v2/query?org=iot' -H 'Authorization: Token ZEFqwNspJYEQ8HAucne-PUUHohOsl18e8nRfu_3q0_o3Z_qoluzc3Od_f8w32MSCir0CBDhm5AyGpF8soK3clQ==' -H 'Content-Type: application/vnd.flux' --data 'from\\(bucket:\"sensors\"\\) |> range\\(start:-5m\\) |> limit\\(n:3\\)')",
+      "Bash(grep -v \"^$\")",
+      "Bash(curl -s -X POST 'http://localhost:8086/api/v2/query?org=iot' -H 'Authorization: Token ZEFqwNspJYEQ8HAucne-PUUHohOsl18e8nRfu_3q0_o3Z_qoluzc3Od_f8w32MSCir0CBDhm5AyGpF8soK3clQ==' -H 'Content-Type: application/vnd.flux' --data 'from\\(bucket:\"sensors\"\\) |> range\\(start:-2m\\) |> filter\\(fn:\\(r\\) => r._measurement == \"sensor_data\"\\) |> filter\\(fn:\\(r\\) => r._field == \"temperature\"\\) |> last\\(\\)')",
+      "Bash(curl -s -u \"admin:Pam-6395\" \"http://localhost:3000/api/datasources/name/InfluxDB\")",
+      "Bash(curl -s -X POST -u admin:Pam-6395 http://localhost:3000/api/datasources/1/health -H 'Content-Type: application/json')",
+      "Bash(curl -s -H \"Authorization: Token ZEFqwNspJYEQ8HAucne-PUUHohOsl18e8nRfu_3q0_o3Z_qoluzc3Od_f8w32MSCir0CBDhm5AyGpF8soK3clQ==\" \"http://localhost:8086/api/v2/buckets?org=iot\")",
+      "Bash(curl -s -X POST 'http://localhost:8086/api/v2/query?org=iot' -H 'Authorization: Token ZEFqwNspJYEQ8HAucne-PUUHohOsl18e8nRfu_3q0_o3Z_qoluzc3Od_f8w32MSCir0CBDhm5AyGpF8soK3clQ==' -H 'Content-Type: application/vnd.flux' --data 'from\\(bucket:\"sensors\"\\) *)",
+      "Bash(node -e \"require\\('bcryptjs'\\)\")",
+      "Bash(node -e \"const crypto=require\\('crypto'\\); console.log\\(crypto.getHashes\\(\\).includes\\('sha256'\\)\\)\")",
+      "Bash(powershell -Command \"-join \\(\\(1..32\\) | ForEach-Object { '{0:x}' -f \\(Get-Random -Max 16\\) }\\)\")",
+      "Bash(npx --version)",
+      "Bash(node-red-admin --version)",
+      "Bash(node-red admin *)",
+      "Bash(node -e ' *)",
+      "Bash(npx --yes bcryptjs)",
+      "Bash(npx --yes bcryptjs password123 8)",
+      "Bash(node generate-password.js \"MySecret123\")",
+      "Bash(docker compose *)",
+      "Bash(docker exec *)",
+      "Bash(mkdir -p C:/Users/thait/AppData/Local/Temp/claude/d--GitHubData-NodeRed-ForAllSystem/b8f1bddf-59c6-4d00-b322-c2998e91d028/scratchpad/envtest5)",
+      "Bash(printf 'MY_HASH=$2b$08$e9VVIc9vJpnsw9LotxfoeOB.EfPAxbZ39HDts2DEbY38Gm5M2r7X2\\\\nPLAIN=hello123\\\\n')",
+      "Bash(docker volume *)",
+      "Bash(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(32\\).toString\\('hex'\\)\\)\")",
+      "Bash(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(16\\).toString\\('hex'\\)\\)\")"
+    ]
+  }
+}

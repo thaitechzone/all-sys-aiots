@@ -1,0 +1,193 @@
+{
+  "name": "n8n-workflow1-collector",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "energy-machine-telemetry",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "7e879688-84b4-456c-b379-241ef3895619",
+      "name": "Receive from Node-RED",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "energy-machine-telemetry"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\n\n// รองรับทุก path ที่เป็นไปได้\nconst d = raw.data?.machine_id   ? raw.data        // { event, data: {...} }\n        : raw.body?.data          ? raw.body.data   // { body: { data: {...} } }\n        : raw.body?.machine_id    ? raw.body        // { body: { machine_id, ... } }\n        : raw.machine_id          ? raw             // flat payload\n        : raw.data                ? raw.data        // fallback\n        : raw;\n\nconst maxCurrent = Math.max(\n  parseFloat(d.current_a?.l1) || 0,\n  parseFloat(d.current_a?.l2) || 0,\n  parseFloat(d.current_a?.l3) || 0\n);\n\nreturn [{\n  json: {\n    timestamp:            d.ts || new Date().toISOString(),\n    machine_id:           d.machine_id       || 'MC-01',\n    power_mode:           d.power_mode       || 'NORMAL',\n    status_label:         d.status_label     || 'NORMAL',\n    active_power_kw:      d.active_power_kw,\n    reactive_power_kvar:  d.reactive_power_kvar,\n    apparent_power_kva:   d.apparent_power_kva,\n    power_factor:         d.power_factor,\n    energy_today_kwh:     d.energy_today_kwh,\n    frequency_hz:         d.frequency_hz,\n    load_pct:             d.load_pct,\n    motor_rpm:            d.motor_rpm,\n    current_max:          Number(maxCurrent.toFixed(2)),\n    current_l1:           d.current_a?.l1,\n    current_l2:           d.current_a?.l2,\n    current_l3:           d.current_a?.l3,\n    voltage_l1:           d.voltage_v?.l1,\n    voltage_l2:           d.voltage_v?.l2,\n    voltage_l3:           d.voltage_v?.l3,\n    alarm_overcurrent:    d.alarm_overcurrent ? 'TRUE' : 'FALSE',\n    spike_event:          d.spike_event       ? 'TRUE' : 'FALSE',\n    _path_used:           d === raw.data ? 'raw.data' : d === raw.body?.data ? 'raw.body.data' : d === raw ? 'raw (flat)' : 'other'\n  }\n}];\n"
+      },
+      "id": "152611be-a680-4a51-9441-1ff741eba15c",
+      "name": "Extract Sheet Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1Oa979YHjGgximaLgiNp--XX4jLZRMgqmuWZJrPpZPaQ",
+          "mode": "list",
+          "cachedResultName": "EnergyLog",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Oa979YHjGgximaLgiNp--XX4jLZRMgqmuWZJrPpZPaQ/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 955116588,
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Oa979YHjGgximaLgiNp--XX4jLZRMgqmuWZJrPpZPaQ/edit#gid=955116588"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "machine_id",
+              "displayName": "machine_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "current_max",
+              "displayName": "current_max",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "alarm_overcurrent",
+              "displayName": "alarm_overcurrent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "power_mode",
+              "displayName": "power_mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "62aca744-eb92-401a-a6e1-fdc147a178e7",
+      "name": "Append to Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        480,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "aBPpcfiPig6Ar2dx",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"saved\",\"ts\":\"{{ $json.timestamp }}\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "3c6b4a3c-5ac8-4d09-a0a2-e0a1e9c6a532",
+      "name": "Respond 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive from Node-RED": {
+      "main": [
+        [
+          {
+            "node": "Extract Sheet Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Sheet Row": {
+      "main": [
+        [
+          {
+            "node": "Append to Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Google Sheet": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "93973fa1-4eb8-42e0-93a9-d15c1fdceed7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6d75f38bd5f41abf1511b6ccd10a29b42acea88a6cf5e5c0491bc29690c5771b"
+  },
+  "id": "RTBRCvWWvN7NddPy",
+  "tags": []
+}
