@@ -26,10 +26,14 @@
   └────────────────────────────────────────────────────┘
 ```
 
+> 👤 **หมายเหตุ user:** คู่มือนี้ใช้ **root user เท่านั้น** ตลอดทั้งขั้นตอน (ไม่สร้าง user แยก)
+> ทุกคำสั่งรันในฐานะ root จึงไม่มี `sudo` นำหน้า — hardening ที่ทำแทนคือ **บังคับ SSH key อย่างเดียว** (ปิด password login)
+
 **หลักการความปลอดภัย:**
 - 🔒 **ไม่เปิดพอร์ต inbound** สู่ Internet เลย (ยกเว้น SSH) — Cloudflare Tunnel เชื่อมแบบ outbound
 - 🔒 Admin UI ทั้งหมดผูกกับ `127.0.0.1` → เข้าถึงผ่าน **SSH port-forward** เท่านั้น
 - 🔒 Public traffic เข้าได้เฉพาะ service ที่ตั้งใจเปิดผ่าน Cloudflare + NPM
+- 🔒 root login ผ่าน **SSH key เท่านั้น** — ปิด password authentication
 
 ---
 
@@ -60,35 +64,35 @@ timedatectl set-timezone Asia/Bangkok
 
 ---
 
-## STEP 2 — สร้าง User ใหม่ & ปิด root login (Hardening)
+## STEP 2 — Hardening SSH (root + key เท่านั้น)
 
-```bash
-# สร้าง user (แทน deploy ด้วยชื่อที่ต้องการ)
-adduser deploy
-usermod -aG sudo deploy
+คู่มือนี้ใช้ root ตลอด จึง **ไม่สร้าง user แยก** แต่ยัง hardening ได้ด้วยการบังคับให้ root
+login ผ่าน **SSH key เท่านั้น** และปิด password login (กัน brute-force)
 
-# คัดลอก SSH key จาก root ไปให้ user ใหม่
-rsync --archive --chown=deploy:deploy ~/.ssh /home/deploy
-```
-
-> จากนั้น **ทดสอบ login ด้วย user ใหม่** ในหน้าต่าง terminal ใหม่ ก่อนปิด root:
+> ⚠️ ก่อนแก้ ต้องแน่ใจว่า **SSH key ของคุณอยู่ใน VPS แล้ว** และ login ด้วย key ได้:
 > ```bash
-> ssh deploy@<VPS_IP>
+> # จากเครื่องตัวเอง — คัดลอก public key ขึ้น root (ถ้ายังไม่ได้ทำตอนสร้าง VPS)
+> ssh-copy-id root@<VPS_IP>
+> # แล้วทดสอบ login ด้วย key ให้ผ่านก่อน (ไม่ถามรหัสผ่าน)
+> ssh root@<VPS_IP>
 > ```
 
-เมื่อ login ด้วย user ใหม่ได้แล้ว → แก้ SSH config ปิด root/password login:
+เมื่อ login ด้วย key ได้แล้ว → แก้ SSH config:
 
 ```bash
-sudo nano /etc/ssh/sshd_config
+nano /etc/ssh/sshd_config
 ```
 ตั้งค่า:
 ```
-PermitRootLogin no
+PermitRootLogin prohibit-password   # อนุญาต root เฉพาะ key (ปิด password)
 PasswordAuthentication no
 ```
 ```bash
-sudo systemctl restart ssh
+systemctl restart ssh
 ```
+
+> 🚨 **อย่าเพิ่งปิด terminal เดิม** — เปิดหน้าต่างใหม่ทดสอบ `ssh root@<VPS_IP>` ให้เข้าได้ก่อน
+> เผื่อพลาดจะได้แก้กลับทัน
 
 ---
 
@@ -98,33 +102,72 @@ sudo systemctl restart ssh
 > เปิดแค่ SSH พอ
 
 ```bash
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow OpenSSH          # หรือพอร์ต SSH ที่กำหนดเอง
-sudo ufw enable
-sudo ufw status verbose
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow OpenSSH          # หรือพอร์ต SSH ที่กำหนดเอง
+ufw enable
+ufw status verbose
 ```
 
 > 📶 **หมายเหตุ MQTT:** ถ้าอุปกรณ์ ESP32 อยู่นอกวง VPS และต้องต่อ MQTT ตรง (port 1883)
-> ควร (ก) เปิด auth ใน Mosquitto ก่อน แล้วค่อย `sudo ufw allow 1883/tcp` หรือ
+> ควร (ก) เปิด auth ใน Mosquitto ก่อน แล้วค่อย `ufw allow 1883/tcp` หรือ
 > (ข) ให้อุปกรณ์เชื่อมผ่าน VPN/Cloudflare แทน — **อย่าเปิด 1883 แบบ anonymous สู่ Internet**
 
 ---
 
 ## STEP 4 — ติดตั้ง Docker & Docker Compose
 
+### 4.1 ตรวจเช็คก่อนว่ามี Docker อยู่แล้วหรือยัง
+
+รันคำสั่งนี้ก่อน เพื่อดูว่า VPS มี Docker + Docker Compose plugin ติดตั้งไว้แล้วหรือไม่
+(กันการติดตั้งซ้ำทับของเดิม):
+
 ```bash
-# ติดตั้ง Docker Engine (official script)
-curl -fsSL https://get.docker.com | sudo sh
+if command -v docker >/dev/null 2>&1; then
+  echo "✅ พบ Docker แล้ว: $(docker --version)"
+  if docker compose version >/dev/null 2>&1; then
+    echo "✅ พบ Docker Compose plugin: $(docker compose version)"
+    echo "→ ข้าม STEP 4 ได้เลย ไปต่อ STEP 5"
+  else
+    echo "⚠️  มี Docker แต่ยังไม่มี Compose plugin — ทำข้อ 4.3"
+  fi
+else
+  echo "❌ ยังไม่มี Docker — ทำข้อ 4.2 เพื่อติดตั้งใหม่"
+fi
+```
 
-# ให้ user รัน docker ได้โดยไม่ต้อง sudo
-sudo usermod -aG docker deploy
-newgrp docker    # หรือ logout/login ใหม่
+**สรุปผล:**
+- เห็น ✅ ทั้งสองบรรทัด → Docker พร้อมแล้ว **ข้ามไป STEP 5**
+- เห็น ❌ (ไม่มี Docker) → ทำ **ข้อ 4.2**
+- เห็น ⚠️ (มี Docker แต่ไม่มี Compose plugin) → ทำ **ข้อ 4.3**
 
-# ตรวจสอบ
+### 4.2 ติดตั้ง Docker Engine (กรณียังไม่มี)
+
+```bash
+# ติดตั้ง Docker Engine + Compose plugin (official script) — รันเป็น root
+curl -fsSL https://get.docker.com | sh
+
+# เปิดใช้งานให้ start เองหลัง reboot
+systemctl enable --now docker
+```
+
+### 4.3 ติดตั้งเฉพาะ Compose plugin (กรณีมี Docker แล้วแต่ไม่มี compose)
+
+```bash
+apt update && apt install -y docker-compose-plugin
+```
+
+### 4.4 ตรวจสอบผลลัพธ์ (ทำทุกกรณี)
+
+```bash
+# ตรวจสอบ (root รัน docker ได้เลย ไม่ต้องเพิ่ม docker group)
 docker --version
 docker compose version
+docker run --rm hello-world     # ทดสอบว่ารัน container ได้จริง
 ```
+
+> 💡 ถ้าใช้คำสั่งเก่าเป็น `docker-compose` (มีขีดกลาง) แสดงว่าเป็น Compose v1 (เลิกซัพพอร์ตแล้ว)
+> คู่มือนี้ใช้ `docker compose` (v2 plugin) ทั้งหมด — แนะนำอัปเดตเป็น v2 ตามข้อ 4.3
 
 ---
 
@@ -158,9 +201,29 @@ nano .env
 > - [ ] `NODERED_PASSWORD_HASH` — escape `$` → `$$` ทุกตัว
 > - [ ] `INFLUXDB_PASSWORD` / `GRAFANA_ADMIN_PASSWORD` — **รหัสแข็งแรง ไม่ซ้ำกัน** (ห้ามใช้ `admin1234`)
 > - [ ] `INFLUXDB_ADMIN_TOKEN` / `N8N_ENCRYPTION_KEY` — สุ่มใหม่จริง
-> - [ ] `N8N_DOMAIN` — โดเมนจริง เช่น `n8n.yourdomain.com`
+> - [ ] `N8N_DOMAIN` — โดเมนจริง เช่น `n8n.yourdomain.com` (ดู ⚠️ กติกาการใส่ค่าด้านล่าง)
 > - [ ] `CLOUDFLARE_TUNNEL_TOKEN` — ได้จาก Step 7
 > - [ ] `TZ=Asia/Bangkok`
+
+> ### 🌐 เรื่องต้องรู้ก่อนใส่ `N8N_DOMAIN` (และ domain อื่น ๆ)
+>
+> **1. ใส่ชื่อโดเมนล้วน ๆ เท่านั้น — อย่าใส่ `http://` / `https://` หรือ `/` ต่อท้าย**
+> เพราะ `docker-compose.yml` เติม `https://` ให้เองอยู่แล้ว (`WEBHOOK_URL=https://${N8N_DOMAIN}/`)
+>
+> | ❌ ผิด | ✅ ถูก |
+> |---|---|
+> | `N8N_DOMAIN=http://n8n-vps.thaitechsync.com` | `N8N_DOMAIN=n8n-vps.thaitechsync.com` |
+> | `N8N_DOMAIN=n8n.example.com/` | `N8N_DOMAIN=n8n.example.com` |
+>
+> ถ้าใส่ `http://` เข้าไป URL จะกลายเป็น `https://http://...` → ระบบพังทันที
+>
+> **2. ยังไม่ต้องสร้าง subdomain ใน Cloudflare ก่อน**
+> ค่านี้เป็นแค่ "ข้อความ" ที่ n8n เอาไปประกอบ URL — พิมพ์ชื่อที่ตั้งใจจะใช้ลงไปได้เลย แม้ยังไม่มีจริง
+> subdomain ตัวจริงจะถูกสร้าง **อัตโนมัติ** ตอนเพิ่ม Public Hostname ใน Tunnel (STEP 7)
+> ข้อแม้เดียว: **root domain ต้อง active อยู่ใน Cloudflare แล้ว**
+>
+> **3. ชื่อใน `.env` ต้องตรงกับชื่อใน Public Hostname (STEP 7) เป๊ะ ๆ**
+> ถ้าสะกดไม่ตรง webhook ของ n8n จะชี้ผิดโดเมน
 
 ---
 
@@ -192,10 +255,10 @@ ls -l .env           # ต้องเห็น -rw------- (600)
 
 ```bash
 # บนเครื่องตัวเอง — ส่งขึ้น VPS ผ่านช่องเข้ารหัส SSH
-scp .env deploy@<VPS_IP>:~/iot-stack/.env
+scp .env root@<VPS_IP>:~/iot-stack/.env
 
 # แล้ว set สิทธิ์บน VPS
-ssh deploy@<VPS_IP> "chmod 600 ~/iot-stack/.env"
+ssh root@<VPS_IP> "chmod 600 ~/iot-stack/.env"
 ```
 
 > ✅ `scp`/`rsync` วิ่งผ่าน SSH (เข้ารหัส) จึงปลอดภัย · ❌ อย่าส่ง `.env` ผ่าน chat/email/git
@@ -208,10 +271,10 @@ ssh deploy@<VPS_IP> "chmod 600 ~/iot-stack/.env"
 # 1. ติดตั้ง (บนเครื่องตัวเอง + VPS)
 #    - sops: https://github.com/getsops/sops/releases
 #    - age:  https://github.com/FiloSottile/age
-sudo apt install -y age
+apt install -y age
 # ติดตั้ง sops จาก release (ตัวอย่าง Linux amd64)
 curl -Lo sops https://github.com/getsops/sops/releases/latest/download/sops-v3.9.0.linux.amd64
-chmod +x sops && sudo mv sops /usr/local/bin/
+chmod +x sops && mv sops /usr/local/bin/
 
 # 2. สร้าง key (เก็บ key ไฟล์นี้ให้ดี — ใช้ถอดรหัส)
 age-keygen -o key.txt
@@ -351,7 +414,7 @@ docker compose logs -f cloudflared   # ตรวจว่า tunnel เชื่
 
 ```bash
 # บนเครื่องตัวเอง
-ssh -L 8181:localhost:81 deploy@<VPS_IP>
+ssh -L 8181:localhost:81 root@<VPS_IP>
 ```
 เปิดเบราว์เซอร์ → http://localhost:8181
 
@@ -382,7 +445,7 @@ ssh -L 8181:localhost:81 deploy@<VPS_IP>
 
 **เข้า admin ภายใน (ผ่าน SSH tunnel):**
 ```bash
-ssh -L 8086:localhost:8086 -L 3000:localhost:3000 deploy@<VPS_IP>
+ssh -L 8086:localhost:8086 -L 3000:localhost:3000 root@<VPS_IP>
 ```
 - http://localhost:8086 (InfluxDB) · http://localhost:3000 (Grafana)
 
@@ -448,13 +511,13 @@ docker compose up -d <service>     # ไม่ใช่ restart! (restart ไม
 | Node-RED login ไม่ได้ | `docker exec nodered printenv NODERED_PASSWORD_HASH` ต้อง 60 ตัว — ถ้าสั้นแปลว่าไม่ได้ escape `$$` |
 | RAM เต็ม / container ถูก kill | เพิ่ม RAM หรือปิด service ที่ไม่ใช้ (เช่น homeassistant) + เพิ่ม swap |
 | InfluxDB org ไม่ตรง `.env` | volume ถูก init ด้วยค่าเก่า — ดู [README.md](README.md) Step 5 (ล้าง volume influxdb) |
-| เข้า admin UI จากภายนอกไม่ได้ | ถูกต้องแล้ว! (ผูก 127.0.0.1) — ใช้ SSH tunnel: `ssh -L <port>:localhost:<port> deploy@VPS` |
+| เข้า admin UI จากภายนอกไม่ได้ | ถูกต้องแล้ว! (ผูก 127.0.0.1) — ใช้ SSH tunnel: `ssh -L <port>:localhost:<port> root@VPS` |
 
 ---
 
 ## 🔐 Security Checklist ก่อนขึ้น Production
 
-- [ ] ปิด root login + password auth (SSH key เท่านั้น)
+- [ ] root login ผ่าน SSH key เท่านั้น (`PermitRootLogin prohibit-password` + ปิด password auth)
 - [ ] UFW เปิดเฉพาะ SSH
 - [ ] เปลี่ยนรหัส default ทุกตัว (NPM `admin@example.com/changeme`, Grafana, InfluxDB)
 - [ ] Admin ports ผูก `127.0.0.1` (ผ่าน `docker-compose.override.yml`)
